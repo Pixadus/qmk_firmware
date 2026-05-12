@@ -5,7 +5,9 @@ KEYCHRON_RGB_ENABLE = yes
 USE_PROCESS_STACKSIZE = 0x2000
 USE_FPU = yes
 
-OPT_DEFS += -DSHARED_EP_ENABLE -DKEYBOARD_SHARED_EP
+# Disable shared EP for Mac boot firmware compatibility
+# Shared EP can confuse early boot firmware that expects simple HID boot protocol
+# OPT_DEFS += -DSHARED_EP_ENABLE -DKEYBOARD_SHARED_EP
 OPT_DEFS += -DXINPUT_ENABLE
 
 include keyboards/keychron/common/analog_matrix/analog_matrix.mk
