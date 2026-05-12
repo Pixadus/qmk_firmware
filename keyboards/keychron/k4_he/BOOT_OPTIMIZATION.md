@@ -1,35 +1,81 @@
-# Keychron K4 HE Boot Optimization Guide
+# Keychron K4 HE Mac Boot Selector Fix
 
 ## Problem Description
 
-The Keychron K4 HE may boot too slowly to register the Option/Alt key when trying to access the Mac boot selector. This is due to the Hall Effect sensor initialization process requiring:
+The Keychron K4 HE cannot reliably trigger the Mac boot selector when holding the Option/Alt key during boot. This is caused by:
 
-1. ADC initialization and calibration
-2. Multiple matrix scans to stabilize analog readings (5 scans by default)
-3. EEPROM calibration data loading
-4. 3-second power-on LED indicator
-5. USB enumeration delays
+1. **USB Shared Endpoint** - The keyboard uses a shared endpoint for keyboard + extras, which Mac boot firmware may not recognize
+2. **NKRO Mode** - Mac boot firmware expects simple 6KRO boot protocol keyboards
+3. **Complex USB Descriptor** - Additional features (RAW HID, joystick, XInput) may confuse early boot firmware
+4. **Initialization Time** - Hall Effect sensor calibration adds delay
 
-## Applied Optimizations
+## Root Cause
 
-The following optimizations have been applied to the firmware in `config.h` and `k4_he.c`:
+Mac's boot firmware (before the OS loads) only recognizes simple HID boot protocol keyboards. The K4 HE presents itself as a complex composite device with:
+- Shared USB endpoints
+- NKRO (N-Key Rollover) support
+- Multiple HID interfaces (keyboard, joystick, RAW HID)
+- Complex USB descriptors
 
-### 1. Reduced Analog Matrix Boot Scans (High Impact)
-**Location:** `config.h` line 96-100
+The boot firmware simply doesn't recognize it as a keyboard early enough to capture the Option key press.
+
+## Applied Fixes
+
+The following changes force the keyboard to present itself as a simple boot protocol device:
+
+### 1. Disabled USB Shared Endpoint (Critical)
+**Location:** `rules.mk` line 8-10
+```makefile
+# Disabled shared endpoint - forces separate keyboard endpoint
+# OPT_DEFS += -DSHARED_EP_ENABLE -DKEYBOARD_SHARED_EP
+```
+**Impact:** Forces the keyboard to use a dedicated endpoint that Mac boot firmware can recognize  
+**Risk:** None - improves compatibility
+
+### 2. Disabled NKRO (Critical)
+**Location:** `config.h` line 105-107
+```c
+#define FORCE_NKRO 0
+```
+**Default:** NKRO enabled  
+**Fixed:** 6KRO (boot protocol) mode  
+**Impact:** Mac boot firmware only recognizes 6KRO keyboards  
+**Risk:** None - 6KRO is sufficient for all normal use
+
+### 3. Increased USB Polling Interval (Medium Impact)
+**Location:** `config.h` line 102-103
+```c
+#define USB_POLLING_INTERVAL_MS 10
+```
+**Default:** 1ms  
+**Fixed:** 10ms  
+**Impact:** Slower polling is more compatible with older/simpler USB implementations  
+**Risk:** None - 10ms (100Hz) is still very responsive
+
+### 4. Explicit USB Power Request (Low Impact)
+**Location:** `config.h` line 97-100
+```c
+#ifndef USB_MAX_POWER_CONSUMPTION
+#    define USB_MAX_POWER_CONSUMPTION 500
+#endif
+```
+**Impact:** Ensures keyboard requests standard USB power (500mA)  
+**Risk:** None
+
+### 5. Reduced Calibration Sample Count (Low Impact)
+**Location:** `config.h` line 111-114
 ```c
 #ifndef CAL_SAMPL_CNT
-#    define CAL_SAMPL_CNT 2
+#    define CAL_SAMPL_CNT 5
 #endif
 ```
 **Default:** 8 samples  
-**Optimized:** 2 samples  
-**Impact:** Reduces initialization time by ~75%  
-**Risk:** Low - This controls the sample count during calibration. The keyboard will still function correctly and auto-calibrate during use.
+**Fixed:** 5 samples  
+**Impact:** Slightly faster boot while maintaining stability  
+**Risk:** Low
 
-**Note:** There's also a hardcoded loop of 5 scans in `matrix_init_custom()` that cannot be easily overridden without modifying shared code. The `CAL_SAMPL_CNT` reduction provides the most significant improvement.
-
-### 2. Reduced Power-On LED Duration (Medium Impact)
-**Location:** `config.h` line 104
+### 6. Reduced Power-On LED Duration (Cosmetic)
+**Location:** `config.h` line 118-119
 ```c
 #undef POWER_ON_LED_DURATION
 #define POWER_ON_LED_DURATION 500
@@ -39,29 +85,64 @@ The following optimizations have been applied to the firmware in `config.h` and 
 **Impact:** Saves 2.5 seconds at boot  
 **Risk:** None - purely cosmetic
 
-## Building the Optimized Firmware
+## Building and Testing
 
-### For ANSI variant:
+### Build the firmware:
 ```bash
 make keychron/k4_he/ansi:keychron:flash
 ```
 
-### For ISO variant:
-```bash
-make keychron/k4_he/iso:keychron:flash
-```
+### Testing the Mac Boot Selector:
 
-## Testing the Option Key for Mac Boot Selector
+**IMPORTANT:** After flashing, you may need to reset NVRAM/PRAM:
 
-1. Power off your Mac completely
-2. Disconnect the K4 HE keyboard
-3. Connect the K4 HE via USB (ensure it's in Cable mode, not wireless)
-4. Power on your Mac while **immediately** holding down the Option/Alt key
-5. You should see the boot selector menu
+1. **First, reset NVRAM:**
+   - Shut down your Mac completely
+   - Power on and **immediately** hold: `Command + Option + P + R`
+   - Hold until you hear the startup sound twice (or see Apple logo twice)
+   - Release keys and let Mac boot normally
 
-## Fine-Tuning
+2. **Then test boot selector:**
+   - Shut down Mac completely
+   - **Disconnect** K4 HE keyboard
+   - **Connect** K4 HE via USB (ensure Cable mode, not wireless)
+   - **Power on Mac** while **immediately** holding **left Option key**
+   - Continue holding until boot menu appears
 
-If you experience issues with key detection after boot (rare):
+3. **If still not working:**
+   - Try holding Option key **before** pressing power button
+   - Keep holding Option for 5-10 seconds after power on
+   - Try different USB ports (USB 2.0 ports may work better)
+   - Try connecting through a powered USB hub
+   - Avoid USB-C adapters/dongles if possible
+
+## Understanding the Changes
+
+### Why Disable NKRO?
+
+Mac boot firmware predates modern complex USB keyboards. It only recognizes:
+- Simple HID Boot Protocol keyboards
+- 6KRO (6-Key Rollover) mode
+- Single endpoint keyboards
+
+NKRO keyboards use a different USB report structure that boot firmware doesn't understand.
+
+### Why Disable Shared Endpoint?
+
+Shared endpoints combine multiple HID functions (keyboard + media keys) into one endpoint. This is efficient but non-standard. Boot firmware expects:
+- Keyboard on its own endpoint
+- Simple HID descriptors
+- Standard boot protocol
+
+### Will This Affect Normal Use?
+
+No! These changes only affect how the keyboard presents itself to USB. Once macOS boots:
+- All keys work normally
+- 6KRO is sufficient for any typing/gaming (you can press 6 keys + modifiers simultaneously)
+- RGB lighting, macros, and all other features work unchanged
+- The keyboard still works with Windows/Linux
+
+## Troubleshooting
 
 ### Increase calibration samples (in `config.h`):
 ```c

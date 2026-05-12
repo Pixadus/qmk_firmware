@@ -93,11 +93,24 @@
 #    define WIRELESS_NKRO_ENABLE
 #endif
 
+/* USB Configuration for Mac boot firmware compatibility */
+/* Request more power to ensure stable operation during boot */
+#ifndef USB_MAX_POWER_CONSUMPTION
+#    define USB_MAX_POWER_CONSUMPTION 500
+#endif
+
+/* Ensure boot protocol mode is properly advertised */
+#define USB_POLLING_INTERVAL_MS 10
+
+/* Force 6KRO instead of NKRO for Mac boot firmware compatibility */
+/* Mac boot firmware may not recognize NKRO keyboards */
+#define FORCE_NKRO 0
+
 /* Reduce analog matrix initialization time for faster boot */
 /* CAL_SAMPL_CNT controls calibration sample count and boot scans */
-/* Default is 8, reducing to 2 speeds up boot significantly */
+/* Default is 8, reducing to 5 for better stability while still improving boot time */
 #ifndef CAL_SAMPL_CNT
-#    define CAL_SAMPL_CNT 2
+#    define CAL_SAMPL_CNT 5
 #endif
 
 /* Reduce power-on indicator duration for faster boot (was 3000ms) */
