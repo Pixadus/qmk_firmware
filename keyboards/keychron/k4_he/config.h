@@ -94,13 +94,15 @@
 #endif
 
 /* Reduce analog matrix initialization time for faster boot */
-#define ANALOG_MATRIX_BOOT_SCANS 2
+/* CAL_SAMPL_CNT controls calibration sample count and boot scans */
+/* Default is 8, reducing to 2 speeds up boot significantly */
+#ifndef CAL_SAMPL_CNT
+#    define CAL_SAMPL_CNT 2
+#endif
 
 /* Reduce power-on indicator duration for faster boot (was 3000ms) */
+#undef POWER_ON_LED_DURATION
 #define POWER_ON_LED_DURATION 500
-
-/* Don't wait for USB enumeration - start responding immediately */
-#define NO_USB_STARTUP_CHECK
 
 /* Factory Test Keys */
 #define FN_KEY_1 MO(1)

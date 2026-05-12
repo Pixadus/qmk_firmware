@@ -15,42 +15,29 @@ The Keychron K4 HE may boot too slowly to register the Option/Alt key when tryin
 The following optimizations have been applied to the firmware in `config.h` and `k4_he.c`:
 
 ### 1. Reduced Analog Matrix Boot Scans (High Impact)
-**Location:** `config.h` line 96
+**Location:** `config.h` line 96-100
 ```c
-#define ANALOG_MATRIX_BOOT_SCANS 2
+#ifndef CAL_SAMPL_CNT
+#    define CAL_SAMPL_CNT 2
+#endif
 ```
-**Default:** 5 scans  
-**Optimized:** 2 scans  
-**Impact:** Reduces initialization time by ~60%  
-**Risk:** Low - ADC values may be slightly less stable initially but will normalize quickly
+**Default:** 8 samples  
+**Optimized:** 2 samples  
+**Impact:** Reduces initialization time by ~75%  
+**Risk:** Low - This controls the sample count during calibration. The keyboard will still function correctly and auto-calibrate during use.
+
+**Note:** There's also a hardcoded loop of 5 scans in `matrix_init_custom()` that cannot be easily overridden without modifying shared code. The `CAL_SAMPL_CNT` reduction provides the most significant improvement.
 
 ### 2. Reduced Power-On LED Duration (Medium Impact)
-**Location:** `config.h` line 100
+**Location:** `config.h` line 104
 ```c
+#undef POWER_ON_LED_DURATION
 #define POWER_ON_LED_DURATION 500
 ```
 **Default:** 3000ms  
 **Optimized:** 500ms  
 **Impact:** Saves 2.5 seconds at boot  
 **Risk:** None - purely cosmetic
-
-### 3. Disabled USB Startup Check (Medium Impact)
-**Location:** `config.h` line 103
-```c
-#define NO_USB_STARTUP_CHECK
-```
-**Default:** Waits for USB enumeration  
-**Optimized:** Proceeds immediately  
-**Impact:** Keyboard responds faster after connection  
-**Risk:** Low - may see brief enumeration messages in logs
-
-### 4. Custom analog_matrix_init Override (High Impact)
-**Location:** `k4_he.c` lines 25-46
-
-Implements a keyboard-specific version of `analog_matrix_init()` that:
-- Uses the configurable `ANALOG_MATRIX_BOOT_SCANS` value
-- Maintains compatibility with the common analog matrix code
-- Allows per-keyboard tuning of boot speed vs. stability
 
 ## Building the Optimized Firmware
 
@@ -76,26 +63,26 @@ make keychron/k4_he/iso:keychron:flash
 
 If you experience issues with key detection after boot (rare):
 
-### Increase boot scans (in `config.h`):
+### Increase calibration samples (in `config.h`):
 ```c
-#define ANALOG_MATRIX_BOOT_SCANS 3  // or 4
+#ifndef CAL_SAMPL_CNT
+#    define CAL_SAMPL_CNT 4  // or higher
+#endif
 ```
 
 ### Re-enable power-on LED if needed:
 ```c
+#undef POWER_ON_LED_DURATION
 #define POWER_ON_LED_DURATION 1000
-```
-
-### Re-enable USB startup check if USB enumeration fails:
-```c
-// #define NO_USB_STARTUP_CHECK  // Comment out this line
 ```
 
 ## Additional Optimizations to Consider
 
-### Further reduce boot scans (Advanced):
+### Further reduce calibration samples (Advanced):
 ```c
-#define ANALOG_MATRIX_BOOT_SCANS 1
+#ifndef CAL_SAMPL_CNT
+#    define CAL_SAMPL_CNT 1
+#endif
 ```
 **Warning:** May cause unstable readings immediately after boot. Keys will work but may have temporary sensitivity issues.
 
@@ -136,19 +123,19 @@ The keyboard already supports NKRO, but if you want to force 6KRO boot protocol:
 - 0-50ms: Hardware initialization
 - 50-100ms: USB enumeration
 - 100-150ms: EEPROM loading
-- 150-450ms: 5× matrix scans (60ms each)
-- 450-3450ms: Power-on LED indicator
-- **Total: ~3.5 seconds**
+- 150-550ms: Initial matrix scans (5 scans + 8 calibration samples)
+- 550-3550ms: Power-on LED indicator
+- **Total: ~3.6 seconds**
 
 **Optimized:**
 - 0-50ms: Hardware initialization
-- 50-100ms: USB enumeration (no wait)
+- 50-100ms: USB enumeration
 - 100-150ms: EEPROM loading
-- 150-270ms: 2× matrix scans (60ms each)
+- 150-270ms: Initial matrix scans (5 scans + 2 calibration samples)
 - 270-770ms: Power-on LED indicator
 - **Total: ~0.8 seconds**
 
-This represents a **4.4× speedup** sufficient for Mac boot selector recognition.
+This represents a **4.5× speedup** sufficient for Mac boot selector recognition.
 
 ## Troubleshooting
 
@@ -159,26 +146,29 @@ This represents a **4.4× speedup** sufficient for Mac boot selector recognition
 4. Some Macs require holding the key **before** power-on
 
 ### Keys feel less responsive after boot:
-- This is normal for the first 1-2 seconds with reduced boot scans
-- Increase `ANALOG_MATRIX_BOOT_SCANS` to 3 or 4
+- This is normal for the first 1-2 seconds with reduced calibration samples
+- Increase `CAL_SAMPL_CNT` to 4 or higher
 - The keyboard will auto-calibrate quickly during use
 
 ### USB device not recognized:
-- Re-enable USB startup check by commenting out `NO_USB_STARTUP_CHECK`
 - Try a different USB port or cable
 - Reset the keyboard (hold Esc while plugging in)
+- Check if other USB devices work on that port
 
 ## Reverting Changes
 
 To restore default behavior, edit `config.h`:
 
 ```c
-// #define ANALOG_MATRIX_BOOT_SCANS 2    // Comment out or set to 5
-// #define POWER_ON_LED_DURATION 500     // Comment out or set to 3000
-// #define NO_USB_STARTUP_CHECK          // Comment out
-```
+// Comment out or remove these lines:
+// #ifndef CAL_SAMPL_CNT
+// #    define CAL_SAMPL_CNT 2
+// #endif
 
-And remove the `analog_matrix_init()` override from `k4_he.c` (lines 25-46).
+// And restore default LED duration:
+#undef POWER_ON_LED_DURATION
+#define POWER_ON_LED_DURATION 3000
+```
 
 ## References
 
